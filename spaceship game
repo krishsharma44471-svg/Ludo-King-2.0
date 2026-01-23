@@ -1,0 +1,143 @@
+import pygame
+import math
+import sys
+import random
+
+# --- Initialization ---
+pygame.init()
+info = pygame.display.Info()
+width, height = info.current_w, info.current_h
+
+screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
+pygame.display.set_caption("Starship 3D: Slow & Steady")
+clock = pygame.time.Clock()
+
+# --- Assets ---
+font = pygame.font.SysFont("Courier New", 30, bold=True)
+huge_font = pygame.font.SysFont("Courier New", 80, bold=True)
+
+# Colors
+DEEP_SPACE = (5, 5, 20); SHIP_COLOR = (0, 255, 255)
+LASER_RED = (255, 50, 100); ENEMY_GREEN = (50, 255, 150)
+GOLD = (255, 215, 0); WHITE = (255, 255, 255)
+
+# --- 3D Model ---
+points = [[0, -1.5, 0], [-1, 0.5, 1], [1, 0.5, 1], [0, 0.5, -1], [0, 1, 0]]
+edges = [(0, 1), (0, 2), (0, 3), (1, 2), (2, 3), (3, 1), (1, 4), (2, 4), (3, 4)]
+stars = [[random.randint(0, width), random.randint(0, height), random.random()] for _ in range(80)]
+
+# --- Variables ---
+bullets = []; enemies = []
+angle = 0; px, py = width // 2, height // 3
+score = 0; lives = 5; game_over = False
+
+# --- MASSIVE BUTTONS (Pro D-Pad Layout) ---
+bw, bh = 200, 130 
+gap = 20           
+base_y = height - 500
+center_x = 240    
+
+# Layout: LEFT - DOWN - RIGHT in one line
+left_btn  = pygame.Rect(center_x - bw - gap, base_y, bw, bh) 
+down_btn  = pygame.Rect(center_x, base_y, bw, bh)            
+right_btn = pygame.Rect(center_x + bw + gap, base_y, bw, bh) 
+# UP is above center (Down)
+up_btn    = pygame.Rect(center_x, base_y - bh - gap, bw, bh)
+# Fire Button (Right side)
+fire_btn  = pygame.Rect(width - 280, base_y - 40, bw + 40, bh + 80)
+
+def draw_btn(rect, text, color):
+    m_pos = pygame.mouse.get_pos()
+    is_pressed = rect.collidepoint(m_pos) and pygame.mouse.get_pressed()[0]
+    draw_color = color if not is_pressed else (255, 255, 255)
+    pygame.draw.rect(screen, draw_color, rect, border_radius=20)
+    pygame.draw.rect(screen, WHITE, rect, 4, border_radius=20)
+    label = font.render(text, True, (0,0,0) if is_pressed else WHITE)
+    screen.blit(label, (rect.centerx - label.get_width()//2, rect.centery - label.get_height()//2))
+
+def project_3d(point, angle, cx, cy):
+    z_rot = point[0] * math.sin(angle) + point[2] * math.cos(angle)
+    x_rot = point[0] * math.cos(angle) - point[2] * math.sin(angle)
+    y_rot = point[1]
+    factor = 600 / (z_rot + 5)
+    return (x_rot * factor + cx, y_rot * factor + cy)
+
+# --- Main Game Loop ---
+while True:
+    screen.fill(DEEP_SPACE)
+    m_pos = pygame.mouse.get_pos()
+    m_click = pygame.mouse.get_pressed()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+            pygame.quit(); sys.exit()
+        if event.type == pygame.MOUSEBUTTONDOWN and not game_over:
+            if fire_btn.collidepoint(event.pos):
+                tip = project_3d(points[0], angle, px, py)
+                bullets.append([tip[0], tip[1]])
+        if event.type == pygame.MOUSEBUTTONDOWN and game_over:
+            score = 0; lives = 5; enemies = []; bullets = []; game_over = False
+
+    if not game_over:
+        # SLOW Stars (Speed reduced to 5)
+        for s in stars:
+            s[1] += s[2] * 5 
+            if s[1] > height: s[1] = 0; s[0] = random.randint(0, width)
+            pygame.draw.circle(screen, WHITE, (int(s[0]), int(s[1])), 1)
+
+        # SLOW Controls (Speed reduced to 12)
+        move_speed = 12
+        if m_click[0]:
+            if up_btn.collidepoint(m_pos):    py -= move_speed
+            if down_btn.collidepoint(m_pos):  py += move_speed
+            if left_btn.collidepoint(m_pos):  px -= move_speed
+            if right_btn.collidepoint(m_pos): px += move_speed
+        
+        px = max(60, min(px, width-60)); py = max(60, min(py, base_y - 150))
+
+        # SLOW Enemies (Frequency and Speed reduced)
+        if random.randint(1, 30) == 1:
+            enemies.append([random.randint(50, width-50), -50, random.uniform(3, 7)])
+
+        for e in enemies[:]:
+            e[1] += e[2] # Slow fall
+            pygame.draw.rect(screen, ENEMY_GREEN, (e[0]-30, e[1]-30, 60, 60), 3, border_radius=10)
+            if e[1] > height: enemies.remove(e)
+            elif math.hypot(px-e[0], py-e[1]) < 80:
+                lives -= 1; enemies.remove(e)
+                if lives <= 0: game_over = True
+
+        # SLOW Bullets
+        for b in bullets[:]:
+            b[1] -= 15 # Dheemi laser
+            pygame.draw.line(screen, LASER_RED, (b[0], b[1]), (b[0], b[1]-40), 8)
+            for e in enemies[:]:
+                if math.hypot(b[0]-e[0], b[1]-e[1]) < 80:
+                    enemies.remove(e); bullets.remove(b); score += 100; break
+            if b[1] < 0 and b in bullets: bullets.remove(b)
+
+        # Draw Ship (Slow Rotation)
+        angle += 0.05
+        ship_pts = [project_3d(p, angle, px, py) for p in points]
+        for edge in edges:
+            pygame.draw.line(screen, SHIP_COLOR, ship_pts[edge[0]], ship_pts[edge[1]], 4)
+
+        # Draw Massive UI
+        draw_btn(up_btn, "UP", (40, 60, 150))
+        draw_btn(left_btn, "LEFT", (40, 60, 150))
+        draw_btn(down_btn, "DOWN", (40, 60, 150))
+        draw_btn(right_btn, "RIGHT", (40, 60, 150))
+        draw_btn(fire_btn, "FIRE", (220, 20, 60))
+
+        # HUD
+        pygame.draw.rect(screen, (10, 10, 40), (0, 0, width, 80))
+        screen.blit(font.render(f"SCORE: {score}", True, GOLD), (50, 25))
+        screen.blit(font.render(f"HULL: {lives}", True, LASER_RED), (width-250, 25))
+    else:
+        msg = huge_font.render("GAME OVER", True, LASER_RED)
+        screen.blit(msg, (width//2 - msg.get_width()//2, height//2 - 50))
+        retry = font.render("CLICK TO RESTART", True, WHITE)
+        screen.blit(retry, (width//2 - retry.get_width()//2, height//2 + 50))
+
+    pygame.display.flip()
+    clock.tick(60)
