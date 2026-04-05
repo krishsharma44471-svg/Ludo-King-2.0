@@ -1,0 +1,165 @@
+import pygame
+import math
+import sys
+import random
+
+# --- Initialization ---
+pygame.init()
+info = pygame.display.Info()
+width, height = info.current_w, info.current_h
+screen = pygame.display.set_mode((width, height), pygame.FULLSCREEN)
+pygame.display.set_caption("Starship 1000: Laser God Edition")
+clock = pygame.time.Clock()
+
+# --- Assets ---
+GOLD = (255, 215, 0); WHITE = (255, 255, 255); DEEP_SPACE = (5, 5, 20)
+SHIP_COLOR = (0, 255, 255); XP_COLOR = (0, 255, 127)
+font = pygame.font.SysFont("Courier New", 28, bold=True)
+huge_font = pygame.font.SysFont("Courier New", 110, bold=True)
+
+# --- Stats ---
+level = 1; xp = 0; lives = 500; score = 0
+game_state = "PLAYING"
+bullets = []; enemies = []
+last_shot_time = 0
+
+# --- 3D Starship Structure ---
+ship_points = [[0, -2, 0], [-1, 0.5, 1], [1, 0.5, 1], [0, 0.5, -1], [0, 1.5, 0]]
+ship_edges = [(0, 1), (0, 2), (0, 3), (1, 2), (2, 3), (3, 1), (1, 4), (2, 4), (3, 4)]
+stars = [[random.randint(0, width), random.randint(0, height), random.random()] for _ in range(80)]
+
+def draw_player_ship(x, y):
+    angle = pygame.time.get_ticks() * 0.003
+    pts = []
+    # Level ke saath ship thoda grow karega
+    size_factor = 1.8 + (level/800)
+    for p in ship_points:
+        z_rot = p[0] * math.sin(angle) + p[2] * math.cos(angle)
+        x_rot = p[0] * math.cos(angle) - p[2] * math.sin(angle)
+        factor = 450 / (z_rot + 5)
+        pts.append((x_rot * factor * size_factor + x, p[1] * factor * size_factor + y))
+    
+    for edge in ship_edges:
+        # Level badhne par ship glow karega
+        color = SHIP_COLOR if level < 500 else GOLD
+        pygame.draw.line(screen, color, pts[edge[0]], pts[edge[1]], 4)
+
+# --- Main Game Loop ---
+while True:
+    screen.fill(DEEP_SPACE)
+    now = pygame.time.get_ticks()
+    mx, my = pygame.mouse.get_pos()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT: pygame.quit(); sys.exit()
+        if event.type == pygame.KEYDOWN and game_state == "GAMEOVER":
+            level=1; xp=0; lives=500; score=0; game_state="PLAYING"; enemies=[]; bullets=[]
+
+    if game_state == "PLAYING":
+        # Background Stars
+        for s in stars:
+            s[1] += s[2] * (5 + level/200)
+            if s[1] > height: s[1] = 0; s[0] = random.randint(0, width)
+            pygame.draw.circle(screen, WHITE, (int(s[0]), int(s[1])), 1)
+
+        # --- HIGH-LEVEL LASER SYSTEM ---
+        # Firing speed increases with Level
+        fire_rate = max(35, 170 - (level // 7))
+        
+        if now - last_shot_time > fire_rate:
+            # Gun Evolution Colors
+            l_col = (255, 50, 50)     # RED (Basic)
+            if level > 100: l_col = (50, 150, 255) # BLUE (Striker)
+            if level > 300: l_col = (50, 255, 100) # GREEN (Trident)
+            if level > 500: l_col = (200, 50, 255) # PURPLE (Storm)
+            if level > 800: l_col = (255, 255, 255) # WHITE/GOLD (GOD BEAM)
+
+            # [BULLET PATTERNS]
+            # Level 1+: Center Shot
+            bullets.append({"pos": [mx, my-40], "vel": [0, -35], "col": l_col, "size": 6})
+
+            # Level 100+: Twin Parallel
+            if level >= 100:
+                bullets.append({"pos": [mx-35, my], "vel": [0, -35], "col": l_col, "size": 5})
+                bullets.append({"pos": [mx+35, my], "vel": [0, -35], "col": l_col, "size": 5})
+
+            # Level 300+: Trident Spread
+            if level >= 300:
+                bullets.append({"pos": [mx, my], "vel": [-10, -30], "col": l_col, "size": 4})
+                bullets.append({"pos": [mx, my], "vel": [10, -30], "col": l_col, "size": 4})
+
+            # Level 500+: Plasma Storm (Side & Rear)
+            if level >= 500:
+                bullets.append({"pos": [mx-50, my], "vel": [-20, 0], "col": (255, 255, 0), "size": 3})
+                bullets.append({"pos": [mx+50, my], "vel": [20, 0], "col": (255, 255, 0), "size": 3})
+                bullets.append({"pos": [mx, my+30], "vel": [0, 30], "col": (255, 50, 50), "size": 4})
+
+            # Level 800+: GOD BEAM (Extra Thick)
+            if level >= 800:
+                bullets.append({"pos": [mx-15, my-60], "vel": [0, -45], "col": GOLD, "size": 10})
+                bullets.append({"pos": [mx+15, my-60], "vel": [0, -45], "col": GOLD, "size": 10})
+                
+            last_shot_time = now
+
+        # --- Enemy Logic ---
+        if random.randint(1, max(2, int(18 - level/80))) == 1:
+            enemies.append([random.randint(50, width-50), -50, random.uniform(6, 12 + level/100)])
+
+        for e in enemies[:]:
+            e[1] += e[2]
+            # Enemy gets more intense as level rises
+            pygame.draw.circle(screen, (255, max(0, 150-level//5), 50), (int(e[0]), int(e[1])), 35, 3)
+            
+            if math.hypot(mx - e[0], my - e[1]) < 75:
+                lives -= 1; enemies.remove(e)
+                if lives <= 0: game_state = "GAMEOVER"
+
+            for b in bullets[:]:
+                if math.hypot(b["pos"][0]-e[0], b["pos"][1]-e[1]) < 50:
+                    if e in enemies:
+                        enemies.remove(e); xp += 12; score += 100
+                        if xp >= 100 and level < 1000: level += 1; xp = 0
+                    if b in bullets: bullets.remove(b)
+            if e[1] > height + 100 or e[1] < -150: enemies.remove(e)
+
+        # Move Bullets
+        for b in bullets[:]:
+            b["pos"][0] += b["vel"][0]
+            b["pos"][1] += b["vel"][1]
+            pygame.draw.line(screen, b["col"], (b["pos"][0], b["pos"][1]), 
+                             (b["pos"][0] - b["vel"][0], b["pos"][1] - b["vel"][1]), b["size"])
+            if b["pos"][1] < -100 or b["pos"][1] > height + 100 or abs(b["pos"][0]) > width + 100:
+                bullets.remove(b)
+
+        # Draw Player
+        draw_player_ship(mx, my)
+
+        # --- High-Level HUD ---
+        pygame.draw.rect(screen, (10, 10, 30), (0, 0, width, 120))
+        
+        # Rank display based on level
+        rank = "ROOKIE"
+        if level > 300: rank = "COMMANDER"
+        if level > 600: rank = "ELITE"
+        if level > 900: rank = "GOD"
+        
+        lbl = font.render(f"RANK: {rank} | LEVEL: {level}/1000", True, GOLD)
+        screen.blit(lbl, (40, 20))
+        
+        life_lbl = font.render(f"HULL: {lives}", True, (255, 50, 100))
+        screen.blit(life_lbl, (width - 250, 20))
+        
+        # XP Progress Bar
+        pygame.draw.rect(screen, (50, 50, 50), (40, 70, 400, 18), border_radius=5)
+        pygame.draw.rect(screen, XP_COLOR, (40, 70, xp * 4, 18), border_radius=5)
+        score_lbl = font.render(f"SCORE: {score}", True, WHITE)
+        screen.blit(score_lbl, (width//2 - 100, 20))
+
+    elif game_state == "GAMEOVER":
+        msg = huge_font.render("MISSION FAILED", True, (255, 0, 0))
+        screen.blit(msg, (width//2 - msg.get_width()//2, height//2))
+        res = font.render(f"FINAL LEVEL: {level} | PRESS KEY TO RESTART", True, WHITE)
+        screen.blit(res, (width//2 - res.get_width()//2, height//2 + 120))
+
+    pygame.display.flip()
+    clock.tick(60)
